@@ -79,9 +79,24 @@ object Puzzle {
 
     val puzzle2: Parser[Puzzle] =
       (name |@| grid) map { Puzzle.puzzle }
+      // Apply[Parser].map2(name, grid)(Puzzle.puzzle)
 
     // I guess it could be handy to compose stuff like this if we had more parsers
   }
 
   // Implement toString for Puzzle...
+
+  implicit class PuzzleExtensions(puzzle: Puzzle) {
+    def row(idx: Int): Array[Cell] = {
+      puzzle._2.slice(idx * 9, 9)
+    }
+
+    def column(idx: Int): Array[Cell] = {
+      ((0 until 9) map (_ * 9 + idx) map puzzle._2.apply).toArray
+    }
+
+    def unit(idx: Int): Array[Cell] = {
+      ???
+    }
+  }
 }
