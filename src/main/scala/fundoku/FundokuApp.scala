@@ -1,9 +1,12 @@
 package fundoku
 
+import scala.reflect.ClassTag
+
 import scala.scalajs.js.JSApp
 import scala.scalajs.js.timers._
 
 import org.scalajs.dom.document
+import org.scalajs.dom.raw.Node
 
 import scalatags.JsDom.all._
 import scalatags.JsDom.svgTags._
@@ -15,57 +18,41 @@ object FundokuApp extends JSApp {
   val dims = (colDims, rowDims)
 
   val updateDelayMillis = 200
+  val maxTickVal = 100
+  val historySize = 5
+  val updateWidth = 5
 
-  val cellActivity = Array.fill(dims.count)(Activity.apply)
+  val maxCellValue = Activity(List.fill(historySize)(maxTickVal)).aggregateValue
+  val updateActivity = Activity.updateActivity(updateWidth, maxTickVal) _
 
-  var tick = 0
-  var updateIndex = 0
-
-  var currGridDom = Builders.grid(dims)(intensity).render
+  // Could probably combine these two vars into one, which would be the only mutable state
+  var cellActivity = (0, Array.fill(dims.count)(Activity(List.fill(historySize)(0))))
+  var currGridDom = renderGridDom
 
   def main(): Unit = {
     document.body.appendChild(currGridDom)
-    setTimeout(updateDelayMillis) {
-      redraw()
-    }
+    scheduleRedraw()
   }
 
   def redraw(): Unit = {
-    updateActivity()
-    val newGridDom = Builders.grid(dims)(intensity).render
+    cellActivity = updateActivity(cellActivity)
+    val newGridDom = renderGridDom
     document.body.replaceChild(newGridDom, currGridDom)
     currGridDom = newGridDom
-    setTimeout(updateDelayMillis) {
-      redraw()
-    }
+    scheduleRedraw()
   }
+
+  def scheduleRedraw(): Unit =
+    setTimeout(updateDelayMillis) { redraw() }
+
+  def renderGridDom: Node = Builders.grid(dims)(intensity(cellActivity._2)).render
 
   def toArrIndex(rowDims: Dims)(c: Int, r: Int): Int = (r * rowDims.count) + c
 
-  // simulate an algorithm that accesses one cell 10 times in a tick,
-  // then moves on to the next cell
-  def updateActivity() = {
-    def wrappedAdd(n: Int, i: Int): Int = {
-      val unwrapped = n + i
-      val wrapBy = unwrapped - cellActivity.size
-      if (wrapBy >= 0) wrapBy else unwrapped
-    }
-    (0 until cellActivity.size).foreach { n =>
-      if (n == updateIndex) {
-        (0 until Activity.numTicksRemembered).foreach { m =>
-          val wrappedM = wrappedAdd(n, m)
-          cellActivity(wrappedM) = cellActivity(wrappedM).update(Activity.maxTickVal)
-        }
-      } else if (!(n > updateIndex && n < (updateIndex + Activity.numTicksRemembered))) {
-        // Ignore anything that would have been updated by previous clause
-        // god this is awful
-        cellActivity(n) = cellActivity(n).update(0)
-      }
-    }
-    updateIndex = wrappedAdd(updateIndex, 1)
+  def intensity(cells: Array[Activity])(col: Int, row: Int) = {
+    val cellValue = cells(toArrIndex(rowDims)(col, row)).aggregateValue
+    1.0d - (cellValue / maxCellValue)
   }
-
-  def intensity(col: Int, row: Int) = 1.0d - cellActivity(toArrIndex(rowDims)(col, row)).normalizedAggValue
   // val colP = (col + row) / (colDims.count + rowDims.count).toDouble
 }
 
@@ -94,6 +81,7 @@ object Builders {
   def cell(intensity: (Int, Int) => Double)(dims: GridDims, col: Int, row: Int): Frag = {
     val cellX = dims.cols.indexLoc(col)
     val cellY = dims.rows.indexLoc(row)
+    // Not sure that this should depend on Color
     val fillCol = white.blend(red, intensity(col, row))
     rect(
       x := cellX,
@@ -137,7 +125,7 @@ object Color {
     import poly._
     import syntax.std.tuple._
     object mixP extends Poly1 {
-      implicit def caseInts = at[(Int, Int)](t => mix(t._1, t._2))
+      implicit def caseInts = at[(Int, Int)](mix.tupled)
     }
     (col1 zip col2) map mixP
     // ... it took 2 hours to come up with that, shapeless ftw
@@ -160,20 +148,50 @@ object Color {
 }
 
 object Activity {
-  val numTicksRemembered = 5
-  val maxTickVal = 10
-  def apply: Activity = Activity(Seq.fill(numTicksRemembered)(0))
+
+  def apply(vs: Int*): Activity = Activity(vs.toList)
+
+  def updateActivity(updateRangeSize: Int, maxTickVal: Int)(activity: (Int, Array[Activity])): (Int, Array[Activity]) = {
+    val (updateIndex, cellActivity) = activity
+    val maxIndex = cellActivity.size
+    val (wrapped, indices) = indicesToUpdate(updateIndex, updateRangeSize, maxIndex)
+    val tickVals = if (wrapped) Seq(maxTickVal, 0) else Seq(0, maxTickVal)
+    val newActivity = updateSlices(cellActivity, indices, tickVals.map(n => (_:Activity).update(n)))
+    val newIndex = addAndWrap(updateIndex, 1, maxIndex)
+    (newIndex, newActivity)
+  }
+
+  def indicesToUpdate(updateStart: Int, rangeSize: Int, maxIndex: Int): (Boolean, Seq[Int]) = {
+    val updateEnd = addAndWrap(updateStart, rangeSize, maxIndex)
+    if (updateEnd < updateStart) {
+      (true, Seq(0, updateEnd, updateStart, maxIndex))
+    } else {
+      (false, Seq(0, updateStart, updateEnd, maxIndex))
+    }
+  }
+
+  // could this be generalized further to operate on anything that can be sliced? sounds tricky
+  def updateSlices[A, B: ClassTag](cells: Array[A], boundaries: Seq[Int], fs: Seq[A => B]): Array[B] = {
+    // Why is there no tupled version of sliding? bah
+    val slices = boundaries.sliding(2)
+    val updates = Iterator.continually(fs).flatten
+    (slices zip updates).flatMap { case (is, f) => cells.slice(is(0), is(1)).map(f) }.toArray
+  }
+
+  // undefined for i >= maxIndex, or <= 0
+  def addAndWrap(n: Int, i: Int, max: Int): Int = {
+    val notWrapped = n + i
+    if (notWrapped >= max) notWrapped - max else notWrapped
+  }
+
   def easing(n: Int) = 1.0d / scala.math.pow(2, n)
-  val maxVal = Activity(Seq.fill(numTicksRemembered)(maxTickVal)).aggregateValue
-  def normalize(v: Double): Double = v / maxVal
 }
 
-case class Activity(ticks: Seq[Int]) {
-  import Activity._
-  def update(tickCount: Int): Activity = Activity(tickCount +: ticks.dropRight(1))
+// This doesn't need to be a case class, could just as easily be a tuple
+case class Activity(ticks: List[Int]) {
+  def update(newValue: Int): Activity = Activity(newValue :: ticks.dropRight(1))
   def aggregateValue: Double =
-    ticks.zipWithIndex.map { case (t, n) => t * easing(n) }.sum
-  def normalizedAggValue: Double = normalize(aggregateValue)
+    ticks.zipWithIndex.map { case (t, n) => t * Activity.easing(n) }.sum
 }
 
 object Dims {
