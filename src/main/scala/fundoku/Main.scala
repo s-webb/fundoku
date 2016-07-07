@@ -47,6 +47,8 @@ object Puzzle {
 
     def print: String =
       (0 to 9).map(n => row(n).map(_.print).mkString).mkString("\n")
+
+    def solved: Boolean = puzzle._2.forall(_.isCompleted)
   }
 
   def updateCells(cells: Seq[Cell], changes: Seq[Cell]) = 

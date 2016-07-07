@@ -6,11 +6,11 @@ class SolverSpec extends WordSpecLike with Matchers {
 
   import Puzzle._
 
-  "removeCompleted" should {
+  "eliminateCompleted" should {
     "remove completed digits from row" in {
       val row = (0 until 9).map(emptyCell).toArray
       row(0) = completedCell(0, 1)
-      val result = Solver.removeCompleted(row)
+      val result = Solver.eliminateCompleted(row)
       val expected = (1 until 9).map((_, (2 to 9).toSet))
       result should have size 8
       expected.foreach { e =>
@@ -20,7 +20,7 @@ class SolverSpec extends WordSpecLike with Matchers {
 
     "remove completed from first row of first example" in {
       val row = "003020600".zipWithIndex.flatMap(c => charToCell(c._2, c._1)).toArray
-      val changes = Solver.removeCompleted(row)
+      val changes = Solver.eliminateCompleted(row)
       val result = updateCells(row, changes)
       // 3, 2 and 6 should have been removed from all cells except indices 2, 4 and 6
       (0 to 8).filterNot(Set(2, 4, 6).contains).foreach { n =>
@@ -50,9 +50,9 @@ class SolverSpec extends WordSpecLike with Matchers {
     }
   }
 
-  "eliminateGroup" should {
+  "eliminateSingleGroup" should {
     "eliminate first row of first puzzle" in {
-      val eliminated = Solver.eliminateGroup(0, firstPuzzle, (n, p) => p.row(n))
+      val eliminated = Solver.eliminateSingleGroup(0, firstPuzzle, _.row)
       eliminated.isDefined should be (true)
 
       val result = eliminated.get.row(0)
@@ -67,9 +67,9 @@ class SolverSpec extends WordSpecLike with Matchers {
     }
   }
 
-  "eliminate groups" should {
+  "eliminateGroups" should {
     "eliminate first two rows of first puzzle" in {
-      val (eliminated, updated) = Solver.eliminateGroups(0 to 1, firstPuzzle, (n, p) => p.row(n))
+      val (eliminated, updated) = Solver.eliminateGroups(_.row, 0 to 1)(firstPuzzle)
       updated should be (true)
 
       val row0 = eliminated.row(0)
