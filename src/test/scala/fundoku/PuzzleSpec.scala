@@ -89,19 +89,6 @@ class PuzzleSpec extends WordSpecLike with Matchers {
     }
   }
 
-  "Solver.removeCompleted" should {
-    "remove completed digits from row" in {
-      val row = (0 until 9).map(emptyCell).toArray
-      row(0) = completedCell(0, 1)
-      val result = Solver.removeCompleted(row)
-      val expected = (1 until 9).map((_, (2 to 9).toSet))
-      result should have size 8
-      expected.foreach { e =>
-        result should contain(e)
-      }
-    }
-  }
-
   val gridText = """
     |123123123
     |223123123
