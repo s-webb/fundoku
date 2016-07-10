@@ -1,39 +1,85 @@
 package fundoku
 
-import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Paths}
-
 import scala.collection.JavaConverters._
+import scala.collection.mutable.Buffer
 
 import cats._
 import cats.syntax.cartesian._
 
 object Puzzle {
 
-  type Cell = Set[Int]
-  type Puzzle = (String, Array[Cell])
+  type Cell = (Int, Set[Int])
 
-  def puzzle(name: String, cells: Array[Cell]): Puzzle = {
+  implicit class CellExtensions(cell: Cell) {
+    def print: String =
+      if (isCompleted) cell._2.head.toString else " "
+
+    def numCandidates: Int = cell._2.size
+    def isCompleted: Boolean = numCandidates == 1
+    def eliminate(digits: Set[Int]): Option[Cell] = {
+      if (!isCompleted && (cell._2 intersect digits).size > 0) {
+        Some((cell._1, cell._2 -- digits))
+      } else None
+    }
+  }
+
+  type Puzzle = (String, Seq[Cell])
+
+  implicit class PuzzleExtensions(puzzle: Puzzle) {
+
+    def row(idx: Int): Seq[Cell] = {
+      puzzle._2.slice(idx * 9, (idx * 9) + 9)
+    }
+
+    def column(idx: Int): Seq[Cell] = {
+      ((0 until 9) map (_ * 9 + idx) map puzzle._2.apply).toSeq
+    }
+
+    def unit(idx: Int): Seq[Cell] = {
+      val r = (idx / 3) * 3
+      val c = (idx % 3) * 3
+      (r until (r + 3)).flatMap(row(_).slice(c, c + 3)).toSeq
+    }
+
+    def update(changes: Seq[Cell]): Puzzle = {
+      (puzzle._1, updateCells(puzzle._2, changes))
+    }
+
+    def print: String =
+      (0 to 9).map(n => row(n).map(_.print).mkString).mkString("\n")
+
+    def solved: Boolean = puzzle._2.forall(_.isCompleted)
+  }
+
+  def updateCells(cells: Seq[Cell], changes: Seq[Cell]) = 
+    changes.foldRight(cells) { case (change, cs) =>
+      cs.updated(change._1, change)
+    }
+
+  def puzzle(name: String, cells: Seq[Cell]): Puzzle = {
     (name, cells)
   }
 
-  val emptyCell: Cell = (1 to 9).toSet
-  def completedCell(n: Int): Cell = Set(n)
+  def emptyCell(i: Int): Cell = (i, (1 to 9).toSet)
+  def completedCell(i: Int, n: Int): Cell = (i, Set(n))
 
-  def charToCell(ch: Char): Option[Cell] = ch match {
-    case '0' => Some(emptyCell)
-    case n if n.isDigit => Some(completedCell(n.toString.toInt))
-    case _ => None
-  }
+  def charToCell(i: Int, ch: Char): Option[Cell] = ch match {
+      case '0' => Some(emptyCell(i))
+      case n if n.isDigit => Some(completedCell(i, n.toString.toInt))
+      case _ => None
+    }
 
   type Parser[A] = Stream[Char] => Option[(A, Stream[Char])]
 
   object Parsers {
 
-    val grid: Parser[Array[Cell]] = in => {
+    val grid: Parser[Seq[Cell]] = in => {
       val (l, r) = in.splitAt(90)
-      val cells = l.flatMap(charToCell)
-      if (cells.size == 81) Some(cells.toArray, r) else None
+      val cells = l.foldLeft(Buffer[Cell]()) {(cs, c) =>
+        charToCell(cs.size, c).map(cs += _).getOrElse(cs)
+      }
+      // val cells = l.flatMap(charToCell)
+      if (cells.size == 81) Some(cells.toSeq, r) else None
     }
 
     val name: Parser[String] = in => {
@@ -84,19 +130,5 @@ object Puzzle {
     // I guess it could be handy to compose stuff like this if we had more parsers
   }
 
-  // Implement toString for Puzzle...
-
-  implicit class PuzzleExtensions(puzzle: Puzzle) {
-    def row(idx: Int): Array[Cell] = {
-      puzzle._2.slice(idx * 9, 9)
-    }
-
-    def column(idx: Int): Array[Cell] = {
-      ((0 until 9) map (_ * 9 + idx) map puzzle._2.apply).toArray
-    }
-
-    def unit(idx: Int): Array[Cell] = {
-      ???
-    }
-  }
 }
+
