@@ -54,21 +54,19 @@ object Solver {
     def combine(b1: Boolean, b2: Boolean): Boolean = b1 || b2
   }
 
-  def foldPuzzleStates[A: Monoid, F[_]: Traverse](states: F[State[Puzzle, A]]): State[Puzzle, A] = {
-    states.sequenceU.map(Foldable[F].fold(_))
+  def foldPuzzleStates[A, F[_]: Traverse](states: F[State[Puzzle, A]], ma: Monoid[A]): State[Puzzle, A] = {
+    states.sequenceU.map(Foldable[F].fold(_)(ma))
   }
 
   val groups = List[GroupSelector](_.row, _.column, _.unit)
 
   val eliminateAll: State[Puzzle, Boolean] = {
-    implicit val or = orMonoid
-    foldPuzzleStates(groups.map(eliminateGroups(_)))
+    foldPuzzleStates(groups.map(eliminateGroups(_)), orMonoid)
   }
 
   def eliminateGroups(f: GroupSelector, range: Range = (0 to 8)): State[Puzzle, Boolean] = {
-    implicit val or = orMonoid
     val single = eliminateSingleGroup(f) _
-    foldPuzzleStates(range.toList.map(single))
+    foldPuzzleStates(range.toList.map(single), orMonoid)
   }
 
   def eliminateSingleGroup(f: GroupSelector)(i: Int): State[Puzzle, Boolean] = {
