@@ -1,22 +1,15 @@
 package fundoku
 
+import scala.language.higherKinds
+
+import cats._
 import cats.data.State
+import cats.std.list._
+import cats.syntax.traverse._
 
 object Solver {
 
   import Puzzle._
-
-  val eliminateRows = State(eliminateGroups(_.row))
-  val eliminateCols = State(eliminateGroups(_.column))
-  val eliminateUnits = State(eliminateGroups(_.unit))
-
-  val eliminateAll: State[Puzzle, Boolean] = for {
-    updatedRows <- eliminateRows
-    updatedCols <- eliminateCols
-    updatedUnits <- eliminateUnits
-  } yield {
-    updatedRows || updatedCols || updatedUnits
-  }
 
   // What would a solver look like?
   //
@@ -40,17 +33,47 @@ object Solver {
     }
   }
 
-  def eliminateGroups(f: (Puzzle) => Int => Seq[Cell], range: Range = (0 to 8))
-      (puzzle: Puzzle): (Puzzle, Boolean) = {
-
-    range.foldLeft((puzzle, false)) { case (in @ (p, _), i) =>
-      eliminateSingleGroup(i, p, f).map((_, true)).getOrElse(in)
+  def solveBySimpleElimination1: State[Puzzle, Boolean] = {
+    // not very satisfactory
+    eliminateAll.transform { (p, modified) =>
+      if (p.solved) {
+        (p, true) 
+      } else if (modified) {
+        solveBySimpleElimination1.run(p).value
+      } else {
+        (p, false)
+      }
     }
   }
 
-  def eliminateSingleGroup(i: Int, p: Puzzle, f: (Puzzle) => Int => Seq[Cell]): Option[Puzzle] = {
-    val changes = eliminateCompleted(f(p)(i))
-    if (changes.isEmpty) None else Some(p.update(changes))
+  type GroupForIndex = Int => Seq[Cell]
+  type GroupSelector = Puzzle => GroupForIndex
+
+  val orMonoid = new Monoid[Boolean] {
+    def empty: Boolean = false
+    def combine(b1: Boolean, b2: Boolean): Boolean = b1 || b2
+  }
+
+  def foldPuzzleStates[A, F[_]: Traverse](states: F[State[Puzzle, A]], ma: Monoid[A]): State[Puzzle, A] = {
+    states.sequenceU.map(Foldable[F].fold(_)(ma))
+  }
+
+  val groups = List[GroupSelector](_.row, _.column, _.unit)
+
+  val eliminateAll: State[Puzzle, Boolean] = {
+    foldPuzzleStates(groups.map(eliminateGroups(_)), orMonoid)
+  }
+
+  def eliminateGroups(f: GroupSelector, range: Range = (0 to 8)): State[Puzzle, Boolean] = {
+    val single = eliminateSingleGroup(f) _
+    foldPuzzleStates(range.toList.map(single), orMonoid)
+  }
+
+  def eliminateSingleGroup(f: GroupSelector)(i: Int): State[Puzzle, Boolean] = {
+    State { p => 
+      val changes = eliminateCompleted(f(p)(i))
+      (p.update(changes), !changes.isEmpty)
+    }
   }
 
   def eliminateCompleted(cells: Seq[Cell]): Seq[Cell] = {
