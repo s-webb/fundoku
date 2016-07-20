@@ -58,6 +58,15 @@ object Solver {
     cells.flatMap(_.eliminate(completed))
   }
 
+  // in order to log activity, I'd need to abstract over all of the operations against cells
+  // what cell operations are there?
+  //
+  //   - check if completed (check size of a set, how is this implemented?)
+  //   - find intersection of candidates and another set of digits
+  //   - remove set of digits from candidates
+  //
+  // Can I define an API for working with cells then?
+
   // What's that other one?
   //  - find any pair of cells in a row/col/unit that have the same remaining digits
   //  - eliminate those digits from all other incomplete cells in the same row/col/unit
