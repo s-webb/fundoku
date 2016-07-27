@@ -1,76 +1,98 @@
 package fundoku
 
+import cats.data.State
+import fundoku.ActivityPuzzle.{CellActivity, CellState, Cells}
+
+import scala.annotation.tailrec
+
 /**
- * An implementation of puzzle that tracks activity
- *
- * Have had to make some fairly arbitrary decisions when calculating
- * the cost of each operation. Same rules apply to any code written against
- * the API though.
- *
- * Would be interesting to be able to be able to have cost rules for
- * different underlying datastructures.
- */
-class ActivityPuzzle(var cells: Seq[Set[Int]]) {
+  * An implementation of puzzle that tracks activity
+  *
+  * Have had to make some fairly arbitrary decisions when calculating
+  * the cost of each operation. Same rules apply to any code written against
+  * the API though.
+  *
+  * Would be interesting to be able to be able to have cost rules for
+  * different underlying datastructures.
+  */
+object ActivityPuzzle {
 
-  var _activity: Seq[Int] = Seq.fill(cells.size)(0)
+  type Cells = Seq[Set[Int]]
 
-  def totalActivity: Int = _activity.sum
+  type CellActivity = Seq[Int]
 
-  def activity(r: Int, c: Int): Int =
-    _activity(rowAndColToIndex(r, c))
+  type CellState[A] = State[Cells, A]
 
-  def isCompleted(r: Int, c: Int): Boolean = {
-    incActivity(r, c)
-    candidatesAt(r, c).size == 1
+  val initialActivity: CellState[CellActivity]= State.inspect(cells => Seq.fill(cells.size)(0))
+
+  def totalActivity: State[CellActivity, Int] = State.inspect(_.sum)
+
+  def activity(r: Int, c: Int): State[CellActivity, Int] = State.inspect(_.apply(rowAndColToIndex(r, c)))
+
+  def isCompleted(r: Int, c: Int): CellState[Boolean] = {
+    for {
+      _ <- incActivity(r, c)
+      cs <- candidatesAt(r, c)
+    } yield {
+      cs.size == 1
+    }
   }
 
-  def isSolved: Boolean = {
-    cells.forall(_.size == 1)
+  def isSolved: CellState[Boolean] = State.inspect(_.forall(_.size == 1))
+
+  def answer(r: Int, c: Int): CellState[(CellActivity, Int)] = {
+    incActivity(r, c).transformS[(CellActivity, Int)](_._1, ???)
+    for {
+      _ <- incActivity(r, c)
+      cs <- candidatesAt(r, c)
+    } yield {
+      cs.head
+    }
   }
 
-  def answer(r: Int, c: Int): Int = {
-    incActivity(r, c)
-    candidatesAt(r, c).iterator.next
-  }
-
-  def printCandidates(r: Int, c: Int): String = {
+  def printCandidates(r: Int, c: Int): CellState[String] = State.inspect { cells =>
     cells(rowAndColToIndex(r, c)).toSeq.sorted.mkString(",")
   }
 
   /**
    * Cost of removing a candidate is proportional to number of candidates in the cell
    */
-  def removeCandidate(r: Int, c: Int, candidate: Int): Boolean = {
+  def removeCandidate(r: Int, c: Int, candidate: Int): CellState[Boolean] = State { cells =>
     val index = rowAndColToIndex(r, c)
     val currCandidates = cells(index)
-    var newCandidates = Set[Int]()
-    val it = currCandidates.iterator
-    var eliminated = false
-    while (it.hasNext) {
-      incActivity(r, c)
-      val v = it.next
-      if (v != candidate) {
-        newCandidates = newCandidates + v
+
+    @tailrec
+    def eliminate(candidates: Set[Int], newCandidates: Set[Int], eliminated: Boolean): (Set[Int], Boolean) = {
+      if (candidates.isEmpty) {
+        (newCandidates, eliminated)
       } else {
-        eliminated = true
+        val v = candidates.head
+        incActivity(r, c) // TODO
+        if (v != candidate) {
+          eliminate(candidates.tail, newCandidates + v, eliminated)
+        } else {
+          eliminate(candidates.tail, newCandidates, true)
+        }
       }
     }
-    cells = cells.updated(index, newCandidates)
-    eliminated
+
+    val (newCandidates, eliminated) = eliminate(currCandidates, Set.empty, false)
+    (cells.updated(index, newCandidates), eliminated)
   }
 
-  private def incActivity(r: Int, c: Int): Unit = {
+  private def incActivity(r: Int, c: Int): State[CellActivity, Unit] = State { activity =>
     val index = rowAndColToIndex(r, c)
-    val curr = _activity(index)
-    _activity = _activity.updated(index, curr + 1)
+    val curr = activity(index)
+    (activity.updated(index, curr + 1), ())
   }
 
-  private def candidatesAt(r: Int, c: Int): Set[Int] =
-    cells(rowAndColToIndex(r, c))
+  private def candidatesAt(r: Int, c: Int): CellState[Set[Int]] = State.inspect {
+    cells => cells(rowAndColToIndex(r, c))
+  }
 
   private def rowAndColToIndex(r: Int, c: Int): Int = (r * 9) + c
 
-  override def toString: String = {
+  val asString: CellState[String] = State.inspect { cells =>
     val lines =
       (0 to 8).map { r =>
         val line = (0 to 8).map { c =>
