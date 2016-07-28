@@ -23,13 +23,17 @@ object ActivityPuzzle {
 
   type CellState[A] = State[Cells, A]
 
+  type ActivityPuzzleState[A] = State[(Cells, CellActivity), A]
+
   val initialActivity: CellState[CellActivity]= State.inspect(cells => Seq.fill(cells.size)(0))
 
-  def totalActivity: State[CellActivity, Int] = State.inspect(_.sum)
+  def totalActivity: ActivityPuzzleState[Int] = State.inspect{ case (cells, activity) => activity.sum }
 
-  def activity(r: Int, c: Int): State[CellActivity, Int] = State.inspect(_.apply(rowAndColToIndex(r, c)))
+  def activity(r: Int, c: Int): ActivityPuzzleState[Int] = State.inspect {
+    case (cells, activity) => activity(rowAndColToIndex(r, c))
+  }
 
-  def isCompleted(r: Int, c: Int): CellState[Boolean] = {
+  def isCompleted(r: Int, c: Int): ActivityPuzzleState[Boolean] = {
     for {
       _ <- incActivity(r, c)
       cs <- candidatesAt(r, c)
@@ -38,10 +42,9 @@ object ActivityPuzzle {
     }
   }
 
-  def isSolved: CellState[Boolean] = State.inspect(_.forall(_.size == 1))
+  val isSolved: CellState[Boolean] = State.inspect(_.forall(_.size == 1))
 
-  def answer(r: Int, c: Int): CellState[(CellActivity, Int)] = {
-    incActivity(r, c).transformS[(CellActivity, Int)](_._1, ???)
+  def answer(r: Int, c: Int): ActivityPuzzleState[Int] = {
     for {
       _ <- incActivity(r, c)
       cs <- candidatesAt(r, c)
@@ -57,17 +60,18 @@ object ActivityPuzzle {
   /**
    * Cost of removing a candidate is proportional to number of candidates in the cell
    */
-  def removeCandidate(r: Int, c: Int, candidate: Int): CellState[Boolean] = State { cells =>
+  def removeCandidate(r: Int, c: Int, candidate: Int): ActivityPuzzleState[Boolean] = State { case (cells, activity) =>
     val index = rowAndColToIndex(r, c)
     val currCandidates = cells(index)
 
+    // Recursion with states???
     @tailrec
     def eliminate(candidates: Set[Int], newCandidates: Set[Int], eliminated: Boolean): (Set[Int], Boolean) = {
       if (candidates.isEmpty) {
         (newCandidates, eliminated)
       } else {
         val v = candidates.head
-        incActivity(r, c) // TODO
+        incActivity(r, c) // TODO - how to get recursion to play nicely with a state monad?
         if (v != candidate) {
           eliminate(candidates.tail, newCandidates + v, eliminated)
         } else {
@@ -77,17 +81,17 @@ object ActivityPuzzle {
     }
 
     val (newCandidates, eliminated) = eliminate(currCandidates, Set.empty, false)
-    (cells.updated(index, newCandidates), eliminated)
+    (cells.updated(index, newCandidates) -> activity, eliminated)
   }
 
-  private def incActivity(r: Int, c: Int): State[CellActivity, Unit] = State { activity =>
+  private def incActivity(r: Int, c: Int): ActivityPuzzleState[Unit] = State { case (cells, activity) =>
     val index = rowAndColToIndex(r, c)
     val curr = activity(index)
-    (activity.updated(index, curr + 1), ())
+    (cells -> activity.updated(index, curr + 1), ())
   }
 
-  private def candidatesAt(r: Int, c: Int): CellState[Set[Int]] = State.inspect {
-    cells => cells(rowAndColToIndex(r, c))
+  private def candidatesAt(r: Int, c: Int): ActivityPuzzleState[Set[Int]] = State.inspect {
+    case (cells, activity) => cells(rowAndColToIndex(r, c))
   }
 
   private def rowAndColToIndex(r: Int, c: Int): Int = (r * 9) + c
