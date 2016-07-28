@@ -52,10 +52,14 @@ class SolverSpec extends WordSpecLike with Matchers {
 
   "eliminateSingleGroup" should {
     "eliminate first row of first puzzle" in {
-      val eliminated = Solver.eliminateSingleGroup(0, firstPuzzle, _.row)
-      eliminated.isDefined should be (true)
+      val eliminator = for {
+        e <- Solver.eliminateSingleGroup(_.row)(0)
+      } yield e
+      val (newState, eliminated) = eliminator.run(firstPuzzle).value
 
-      val result = eliminated.get.row(0)
+      eliminated should be (true)
+
+      val result = newState.row(0)
       // 3, 2 and 6 should have been removed from all cells except indices 2, 4 and 6
       (0 to 8).filterNot(Set(2, 4, 6).contains).foreach { n =>
         result(n)._2 should contain noneOf (2, 3, 6)
@@ -69,7 +73,9 @@ class SolverSpec extends WordSpecLike with Matchers {
 
   "eliminateGroups" should {
     "eliminate first two rows of first puzzle" in {
-      val (eliminated, updated) = Solver.eliminateGroups(_.row, 0 to 1)(firstPuzzle)
+      val (eliminated, updated) = (for (e <- Solver.eliminateGroups(_.row, 0 to 1)) yield e).
+        run(firstPuzzle).value
+
       updated should be (true)
 
       val row0 = eliminated.row(0)
